@@ -1123,7 +1123,7 @@ impl ExecutionState {
             context.stack = vec![
                 ExecutionStackElement {
                     address: message.sender,
-                    coins: message.coins,
+                    coins: Default::default(),
                     owned_addresses: vec![message.sender],
                     operation_datastore: None,
                 },
@@ -1175,10 +1175,19 @@ impl ExecutionState {
 
         // load and execute the compiled module
         // IMPORTANT: do not keep a lock here as `run_function` uses the `get_module` interface
-        let module = self
+        let Ok(module) = self
             .module_cache
             .write()
-            .load_module(&bytecode, message.max_gas)?;
+            .load_module(&bytecode, message.max_gas)
+        else {
+            let err =
+                ExecutionError::RuntimeError("could not load module for async execution".into());
+            let mut context = context_guard!(self);
+            context.reset_to_snapshot(context_snapshot, err.clone());
+            context.cancel_async_message(&message);
+            return Err(err);
+        };
+
         let response = massa_sc_runtime::run_function(
             &*self.execution_interface,
             module,
@@ -1271,7 +1280,9 @@ impl ExecutionState {
 
         // Try executing asynchronous messages.
         // Effects are cancelled on failure and the sender is reimbursed.
-        for (opt_bytecode, message) in messages {
+        for (_message_id, message) in messages {
+            let opt_bytecode = context_guard!(self).get_bytecode(&message.destination);
+
             match self.execute_async_message(message, opt_bytecode) {
                 Ok(_message_return) => {
                     cfg_if::cfg_if! {
