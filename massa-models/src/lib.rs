@@ -28,6 +28,8 @@ pub mod composite;
 pub mod config;
 /// datastore serialization / deserialization
 pub mod datastore;
+/// deferred call id
+pub mod deferred_call_id;
 /// denunciation
 pub mod denunciation;
 /// endorsements

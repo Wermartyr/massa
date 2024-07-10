@@ -5,6 +5,9 @@
 use massa_async_pool::{
     AsyncPoolChanges, AsyncPoolChangesDeserializer, AsyncPoolChangesSerializer,
 };
+use massa_deferred_calls::registry_changes::{
+    DeferredRegistryChanges, DeferredRegistryChangesDeserializer, DeferredRegistryChangesSerializer,
+};
 use massa_executed_ops::{
     ExecutedDenunciationsChanges, ExecutedDenunciationsChangesDeserializer,
     ExecutedDenunciationsChangesSerializer, ExecutedOpsChanges, ExecutedOpsChangesDeserializer,
@@ -31,6 +34,8 @@ pub struct StateChanges {
     pub ledger_changes: LedgerChanges,
     /// asynchronous pool changes
     pub async_pool_changes: AsyncPoolChanges,
+    /// deferred call changes
+    pub deferred_call_changes: DeferredRegistryChanges,
     /// roll state changes
     pub pos_changes: PoSChanges,
     /// executed operations changes
@@ -45,6 +50,7 @@ pub struct StateChanges {
 pub struct StateChangesSerializer {
     ledger_changes_serializer: LedgerChangesSerializer,
     async_pool_changes_serializer: AsyncPoolChangesSerializer,
+    deferred_call_changes_serializer: DeferredRegistryChangesSerializer,
     pos_changes_serializer: PoSChangesSerializer,
     ops_changes_serializer: ExecutedOpsChangesSerializer,
     de_changes_serializer: ExecutedDenunciationsChangesSerializer,
@@ -63,6 +69,7 @@ impl StateChangesSerializer {
         Self {
             ledger_changes_serializer: LedgerChangesSerializer::new(),
             async_pool_changes_serializer: AsyncPoolChangesSerializer::new(),
+            deferred_call_changes_serializer: DeferredRegistryChangesSerializer::new(),
             pos_changes_serializer: PoSChangesSerializer::new(),
             ops_changes_serializer: ExecutedOpsChangesSerializer::new(),
             de_changes_serializer: ExecutedDenunciationsChangesSerializer::new(),
@@ -77,6 +84,8 @@ impl Serializer<StateChanges> for StateChangesSerializer {
             .serialize(&value.ledger_changes, buffer)?;
         self.async_pool_changes_serializer
             .serialize(&value.async_pool_changes, buffer)?;
+        self.deferred_call_changes_serializer
+            .serialize(&value.deferred_call_changes, buffer)?;
         self.pos_changes_serializer
             .serialize(&value.pos_changes, buffer)?;
         self.ops_changes_serializer
@@ -93,6 +102,7 @@ impl Serializer<StateChanges> for StateChangesSerializer {
 pub struct StateChangesDeserializer {
     ledger_changes_deserializer: LedgerChangesDeserializer,
     async_pool_changes_deserializer: AsyncPoolChangesDeserializer,
+    deferred_call_changes_deserializer: DeferredRegistryChangesDeserializer,
     pos_changes_deserializer: PoSChangesDeserializer,
     ops_changes_deserializer: ExecutedOpsChangesDeserializer,
     de_changes_deserializer: ExecutedDenunciationsChangesDeserializer,
@@ -118,6 +128,7 @@ impl StateChangesDeserializer {
         max_ops_changes_length: u64,
         endorsement_count: u32,
         max_de_changes_length: u64,
+        max_deferred_call_pool_changes: u64,
     ) -> Self {
         Self {
             ledger_changes_deserializer: LedgerChangesDeserializer::new(
@@ -132,6 +143,12 @@ impl StateChangesDeserializer {
                 max_function_length,
                 max_function_params_length,
                 max_datastore_key_length as u32,
+            ),
+            // todo max gas
+            deferred_call_changes_deserializer: DeferredRegistryChangesDeserializer::new(
+                thread_count,
+                u64::MAX,
+                max_deferred_call_pool_changes,
             ),
             pos_changes_deserializer: PoSChangesDeserializer::new(
                 thread_count,
@@ -169,6 +186,9 @@ impl Deserializer<StateChanges> for StateChangesDeserializer {
                 context("Failed async_pool_changes deserialization", |input| {
                     self.async_pool_changes_deserializer.deserialize(input)
                 }),
+                context("Failed deferred_call_changes deserialization", |input| {
+                    self.deferred_call_changes_deserializer.deserialize(input)
+                }),
                 context("Failed roll_state_changes deserialization", |input| {
                     self.pos_changes_deserializer.deserialize(input)
                 }),
@@ -191,6 +211,7 @@ impl Deserializer<StateChanges> for StateChangesDeserializer {
             |(
                 ledger_changes,
                 async_pool_changes,
+                deferred_call_changes,
                 pos_changes,
                 executed_ops_changes,
                 executed_denunciations_changes,
@@ -198,6 +219,7 @@ impl Deserializer<StateChanges> for StateChangesDeserializer {
             )| StateChanges {
                 ledger_changes,
                 async_pool_changes,
+                deferred_call_changes,
                 pos_changes,
                 executed_ops_changes,
                 executed_denunciations_changes,
@@ -229,10 +251,10 @@ mod test {
 
     use massa_async_pool::AsyncMessage;
     use massa_ledger_exports::{LedgerEntryUpdate, SetUpdateOrDelete};
-    use massa_models::address::Address;
     use massa_models::amount::Amount;
     use massa_models::bytecode::Bytecode;
     use massa_models::slot::Slot;
+    use massa_models::{address::Address, config::MAX_DEFERRED_CALL_POOL_CHANGES};
     use massa_serialization::DeserializeError;
 
     use massa_models::config::{
@@ -317,6 +339,7 @@ mod test {
             MAX_EXECUTED_OPS_CHANGES_LENGTH,
             ENDORSEMENT_COUNT,
             MAX_DENUNCIATION_CHANGES_LENGTH,
+            MAX_DEFERRED_CALL_POOL_CHANGES,
         )
         .deserialize::<DeserializeError>(&serialized)
         .unwrap();
